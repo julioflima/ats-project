@@ -1,10 +1,10 @@
 import { Grip, MessageCircle, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { ChatWindow } from "@/components/ChatWindow";
 import { Button } from "@/components/ui/button";
+import { ChatWindow } from "@/routes/-components/chat-window";
 
-export function ChatDrawer() {
+export function ChatSidebar() {
   const [open, setOpen] = useState(false);
   const [width, setWidth] = useState(480);
   const [isResizing, setIsResizing] = useState(false);
@@ -12,33 +12,40 @@ export function ChatDrawer() {
   useEffect(() => {
     if (!isResizing) return;
 
-    const onPointerMove = (event: PointerEvent) => {
+    const handlePointerMove = (event: PointerEvent) => {
       const maxWidth = Math.max(380, window.innerWidth - 360);
       const nextWidth = Math.min(Math.max(window.innerWidth - event.clientX, 360), maxWidth);
       setWidth(nextWidth);
     };
 
-    const onPointerUp = () => setIsResizing(false);
+    const handlePointerUp = () => setIsResizing(false);
 
     document.body.style.cursor = "ew-resize";
     document.body.style.userSelect = "none";
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
 
     return () => {
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
     };
   }, [isResizing]);
+
+  const handleOpen = useCallback(() => setOpen(true), []);
+  const handleClose = useCallback(() => setOpen(false), []);
+  const handleResizeStart = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    setIsResizing(true);
+  }, []);
 
   return (
     <>
       {!open && (
         <Button
           size="fab"
-          onClick={() => setOpen(true)}
+          onClick={handleOpen}
           aria-label="Open chat"
           className="fixed bottom-6 right-6 z-40"
         >
@@ -54,10 +61,7 @@ export function ChatDrawer() {
           <button
             type="button"
             className="absolute left-0 top-1/2 z-10 flex h-24 w-4 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize items-center justify-center rounded-full border border-border bg-foreground text-background shadow-xl transition-transform hover:scale-105"
-            onPointerDown={(event) => {
-              event.preventDefault();
-              setIsResizing(true);
-            }}
+            onPointerDown={handleResizeStart}
             aria-label="Resize chat drawer"
           >
             <Grip className="h-3.5 w-3.5" aria-hidden="true" />
@@ -72,16 +76,9 @@ export function ChatDrawer() {
                   Ask about the CVs
                 </h2>
               </div>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setOpen(false)}
-                  aria-label="Close chat"
-                >
-                  <X />
-                </Button>
-              </div>
+              <Button variant="ghost" size="icon" onClick={handleClose} aria-label="Close chat">
+                <X />
+              </Button>
             </header>
             <div className="min-h-0 flex-1">
               <ChatWindow />

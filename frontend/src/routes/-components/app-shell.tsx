@@ -1,7 +1,7 @@
 import { Outlet } from "@tanstack/react-router";
 
-import { ChatDrawer } from "@/components/ChatDrawer";
-import { Header } from "@/components/Header";
+import { ChatSidebar } from "@/routes/-components/chat-sidebar";
+import { Header } from "@/routes/-components/header";
 
 export function AppShell() {
   return (
@@ -11,7 +11,7 @@ export function AppShell() {
         <main className="min-w-0 flex-1">
           <Outlet />
         </main>
-        <ChatDrawer />
+        <ChatSidebar />
       </div>
     </div>
   );

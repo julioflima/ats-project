@@ -1,6 +1,6 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import type { Candidate } from "@/lib/queries";
+import type { Candidate } from "@/graphql/graphql";
 
 function initials(name: string): string {
   const parts = name.split(" ").filter(Boolean);
@@ -8,7 +8,11 @@ function initials(name: string): string {
   return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
 }
 
-export function CandidateCard({ candidate }: { candidate: Candidate }) {
+interface CandidateCardProps {
+  candidate: Candidate;
+}
+
+export function CandidateCard({ candidate }: CandidateCardProps) {
   return (
     <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-card p-5 text-center transition-shadow hover:shadow-md">
       <Avatar className="h-16 w-16">
