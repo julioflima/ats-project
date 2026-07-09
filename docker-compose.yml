@@ -1,0 +1,37 @@
+# Local dev — same three-service topology as the k3s deployment (PLAN.md
+# section 4): frontend (Caddy) + backend (FastAPI/GraphQL) + chroma (server).
+services:
+  chroma:
+    image: chromadb/chroma:latest
+    ports:
+      - "8001:8000" # host 8001 so scripts on the host can reach it
+    volumes:
+      - ./data/chroma-server:/data
+    # No healthcheck: the chroma image ships no shell tools to probe with;
+    # the backend's chromadb client retries the connection on first use.
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      SQLITE_PATH: /data/registry/app.db
+      CVS_DIR: /data/cvs
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
+      GCS_BUCKET: ${GCS_BUCKET:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+    volumes:
+      - ./data:/data
+      - ./scripts:/srv/scripts:ro # so `docker compose run backend python /srv/scripts/generate_cvs.py` works
+    depends_on:
+      - chroma
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend

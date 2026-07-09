@@ -1,0 +1,43 @@
+# k3s's bundled Traefik — the public front door, with no GCP-billed Load
+# Balancer behind it (PLAN.md section 8.2). Routes everything to the KEDA
+# interceptor, which consults the HTTPScaledObjects' path prefixes to pick
+# (and if needed, wake) the target service.
+#
+# HOSTNAME (PLAN.md 8.2b) — replace ats.VM_IP.sslip.io with one of:
+#   - zero-cost:   ats.<VM external IP with dots>.sslip.io  (resolves to the
+#                  IP automatically, no registrar, no DNS setup — e.g.
+#                  ats.34.42.1.2.sslip.io)
+#   - own domain:  an A record at your registrar pointing at the VM IP —
+#                  the reliable path for HTTPS (see traefik-tls.yaml).
+# Keep the same value in config.yaml's ALLOWED_ORIGINS.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: leadtech-ats
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.tls.certresolver: le
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ats.VM_IP.sslip.io # <- set me (see header comment)
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keda-interceptor
+                port:
+                  number: 8080
+    # Fallback: raw-IP access (no Host match) still works over plain HTTP,
+    # so the demo never depends on cert issuance succeeding.
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keda-interceptor
+                port:
+                  number: 8080

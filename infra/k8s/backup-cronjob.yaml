@@ -1,0 +1,50 @@
+# Twice-daily snapshots of PDFs + SQLite to Cloud Storage (PLAN.md 8.5a).
+# Two uploads per run: a timestamped history object (pruned by the bucket's
+# 7-day lifecycle rule) and latest.tar.gz (overwritten each run — the fixed
+# name the chroma initContainer auto-restores from on a fresh volume).
+# Chroma's vector index is deliberately excluded: it's derived data,
+# rebuildable from the PDFs via the ingestion pipeline.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: data-backup
+spec:
+  schedule: "0 6,18 * * *" # 06:00 and 18:00 UTC — worst-case loss window ~12h
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: google/cloud-sdk:slim
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -e
+                  if [ -z "${GCS_BUCKET}" ]; then
+                    echo "GCS_BUCKET unset - nothing to do"; exit 0
+                  fi
+                  STAMP=$(date -u +%Y%m%dT%H%M%S)
+                  tar -czf /tmp/backup.tar.gz -C /data cvs registry 2>/dev/null \
+                    || { echo "nothing to back up yet"; exit 0; }
+                  gsutil cp /tmp/backup.tar.gz "gs://${GCS_BUCKET}/backups/${STAMP}.tar.gz"
+                  gsutil cp /tmp/backup.tar.gz "gs://${GCS_BUCKET}/backups/latest.tar.gz"
+                  echo "snapshot ${STAMP} uploaded"
+              env:
+                - name: GCS_BUCKET
+                  valueFrom:
+                    configMapKeyRef:
+                      name: app-config
+                      key: GCS_BUCKET
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: data-chroma-0

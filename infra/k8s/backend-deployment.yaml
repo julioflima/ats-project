@@ -1,0 +1,47 @@
+# No `replicas` pinned — KEDA's HTTPScaledObject owns the count (0 or 1),
+# PLAN.md section 8.5. Update the image to your Artifact Registry path
+# (terraform output artifact_registry_repo).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: us-central1-docker.pkg.dev/YOUR_PROJECT/leadtech-ats/backend:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: llm-api-key
+          readinessProbe:
+            httpGet:
+              path: /api/health # the deliberate plain-REST exception (PLAN.md section 2)
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 250Mi
+            limits:
+              memory: 450Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        # Same PVC the chroma StatefulSet owns — single node, both pods
+        # co-scheduled, so RWO is satisfied (PLAN.md 8.5).
+        - name: data
+          persistentVolumeClaim:
+            claimName: data-chroma-0

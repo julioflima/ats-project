@@ -1,0 +1,26 @@
+# Caddy serves the built React bundle and proxies the API — the whole config.
+# (Swap :80 for a domain name and Caddy provisions HTTPS automatically.)
+:80 {
+	root * /srv/dist
+	encode gzip
+
+	# CV PDF uploads go through /graphql multipart; generateCandidate does an
+	# LLM call + PDF render, so give the proxy a generous timeout.
+	handle /graphql* {
+		reverse_proxy backend:8000 {
+			transport http {
+				response_header_timeout 120s
+			}
+		}
+	}
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# SPA fallback: unknown paths serve index.html for the client-side router.
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}

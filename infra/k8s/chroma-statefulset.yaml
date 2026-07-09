@@ -1,0 +1,75 @@
+# The one stateful workload (PLAN.md sections 8.2/8.5): Chroma owns the PVC;
+# the SQLite registry and CV PDFs live on the same volume (backend mounts it
+# too — fine on a single node with RWO). Always-on: deliberately excluded from
+# KEDA scale-to-zero to avoid a cold-start ordering race with the backend.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: chroma
+spec:
+  serviceName: chroma
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chroma
+  template:
+    metadata:
+      labels:
+        app: chroma
+    spec:
+      initContainers:
+        # Auto-restore on a genuinely fresh volume ONLY (PLAN.md 8.5a): a
+        # normal reboot never empties the PVC, and restoring on every restart
+        # would overwrite live data with a stale snapshot. The empty-volume
+        # check limits this to the one scenario it's for: a VM rebuild.
+        - name: restore-if-empty
+          image: google/cloud-sdk:slim
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -e
+              if [ -z "${GCS_BUCKET}" ]; then
+                echo "GCS_BUCKET unset - skipping restore"; exit 0
+              fi
+              if [ -f /data/registry/app.db ]; then
+                echo "Existing data found - skipping restore"; exit 0
+              fi
+              if ! gsutil -q stat "gs://${GCS_BUCKET}/backups/latest.tar.gz"; then
+                echo "No snapshot in bucket yet - starting fresh"; exit 0
+              fi
+              echo "Empty volume - restoring latest snapshot"
+              gsutil cp "gs://${GCS_BUCKET}/backups/latest.tar.gz" /tmp/restore.tar.gz
+              tar -xzf /tmp/restore.tar.gz -C /data
+              echo "Restore complete"
+          env:
+            - name: GCS_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: GCS_BUCKET
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: chroma
+          image: chromadb/chroma:latest
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 200Mi
+            limits:
+              memory: 400Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path # k3s default provisioner (PLAN.md 8.5)
+        resources:
+          requests:
+            storage: 5Gi

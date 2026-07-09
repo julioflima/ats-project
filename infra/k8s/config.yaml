@@ -1,0 +1,16 @@
+# Non-secret app configuration. Set GCS_BUCKET to the terraform `cv_bucket`
+# output before applying (it drives PDF copies, snapshots, and auto-restore).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  GCS_BUCKET: "YOUR_PROJECT-leadtech-ats-cvs" # <- terraform output cv_bucket
+  CHROMA_HOST: "chroma"
+  CHROMA_PORT: "8000"
+  SQLITE_PATH: "/data/registry/app.db"
+  CVS_DIR: "/data/cvs"
+  # CORS lockdown for the deployed profile — must match the Ingress host
+  # (ingress.yaml). List both schemes while TLS is being set up; trim to
+  # https-only once certs are issued.
+  ALLOWED_ORIGINS: "http://ats.VM_IP.sslip.io,https://ats.VM_IP.sslip.io"

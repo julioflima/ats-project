@@ -1,0 +1,35 @@
+# HTTPS termination for k3s's bundled Traefik via Let's Encrypt (ACME TLS
+# challenge on port 443 — already open in the VPC firewall). k3s watches
+# HelmChartConfig and re-renders its Traefik deployment with these values.
+#
+# Set your real email below. Certs are stored on a small PVC so they survive
+# pod restarts (Let's Encrypt rate limits make re-issuing on every restart a
+# genuinely bad idea).
+#
+# Hostname note (PLAN.md 8.2b): with your own domain, point an A record at
+# the VM IP and certs Just Work. With the zero-cost sslip.io hostname
+# (ats.<VM_IP>.sslip.io) issuance MAY fail — Let's Encrypt rate limits are
+# shared across all sslip.io users globally. Plain HTTP keeps working either
+# way; HTTPS-over-own-domain is the reliable path.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    additionalArguments:
+      - "--certificatesresolvers.le.acme.tlschallenge=true"
+      - "--certificatesresolvers.le.acme.email=you@example.com"
+      - "--certificatesresolvers.le.acme.storage=/data/acme.json"
+    persistence:
+      enabled: true
+      size: 128Mi
+      storageClass: local-path
+    ports:
+      web:
+        redirections:
+          entryPoint:
+            to: websecure
+            scheme: https
+            permanent: true

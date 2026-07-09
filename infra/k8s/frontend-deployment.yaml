@@ -1,0 +1,26 @@
+# Caddy serving the built React bundle; /graphql is proxied to the backend
+# Service by the Caddyfile baked into the image. Replicas owned by KEDA.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: us-central1-docker.pkg.dev/YOUR_PROJECT/leadtech-ats/frontend:latest
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
