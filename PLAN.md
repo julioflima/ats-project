@@ -73,6 +73,7 @@ flowchart TB
 - **`/api/health` stays plain REST**, deliberately outside GraphQL. Kubernetes liveness/readiness probes expect a fast, dependency-free HTTP GET with a status code — routing that through a GraphQL query would add unnecessary parsing overhead and coupling between infra health checks and the app schema. This is a one-line exception, called out rather than silently kept.
 - Upload and generate still terminate in the **same shared ingestion pipeline and registry write** as before — GraphQL changes the transport, not the underlying `ingest_candidate()` / `generate_candidate()` functions.
 - **TanStack Router** structures the frontend as real routes (root layout + index route) even though the app is single-page today — this is what "should use tanrouter" asks for, scoped to what the app actually needs rather than inventing extra pages to justify the router.
+- **No public Load Balancer / Ingress.** The GCP deployment (§7) exposes nothing via a GCE HTTP(S) Load Balancer — that forwarding rule is a fixed ~$18/month cost regardless of traffic, the single largest line item after compute in the original cost model, and unnecessary for a reviewer-facing demo. Access for the video/demo is via `kubectl port-forward` (§7.1), which is free. See §8 for the recomputed cost.
 
 ---
 
@@ -251,7 +252,7 @@ Running `chroma` as its own container locally means the same three-service topol
 │       ├── frontend-deployment.yaml
 │       ├── chroma-statefulset.yaml   # also hosts the SQLite file on the same PVC, see §7.3
 │       ├── services.yaml
-│       ├── ingress.yaml
+│       ├── http-scaledobjects.yaml   # KEDA HTTPScaledObject × 2 (frontend, backend) — no ingress.yaml, see §7.1
 │       └── secret.yaml (templated, not committed with real values)
 └── docs/
     └── architecture-diagram.png (or the mermaid source above, rendered)
@@ -287,12 +288,15 @@ Running `chroma` as its own container locally means the same three-service topol
 - No custom VPC, private GKE cluster, or Cloud NAT — unnecessary hardening for a POC with no sensitive data.
 - SQLite (not Cloud SQL) for the candidate registry — right-sized for ~30 rows; single-writer is a documented limit, not an oversight.
 - No CI/CD pipeline built out — the manual deploy sequence in §7.2 is what CI would automate.
+- **No public Load Balancer** — deliberately removed to cut a fixed ~$18/month; access is via `kubectl port-forward` (§7.1). A Cloudflare Tunnel pod (outbound-only, free tier) is the documented $0 alternative if a real public URL is wanted later — not built for this submission.
+- **Chroma is not scaled to zero** — kept always-on to avoid a cold-start ordering race with the backend; it's also already the cheapest workload, so the savings from scaling it would be marginal (§7.1, §8.1).
+- **No Knative migration** — KEDA HTTP Add-on scales the existing plain Deployments directly; adopting Knative Service CRDs would also achieve scale-to-zero but is a bigger structural rewrite than this scope calls for.
 
 ---
 
 ## 7. GCP Deployment — Terraform + Kubernetes
 
-*(Unchanged from the REST-based draft — GraphQL is an API-shape decision inside the backend container, not an infra change. Included here for completeness.)*
+GraphQL vs. REST is an API-shape decision inside the backend container, not an infra change. Two infra decisions **are** new in this revision, both aimed squarely at cost: (1) no public Load Balancer — access is via `kubectl port-forward`; (2) the app **scales to zero when idle and wakes on the first incoming request**, via the KEDA HTTP Add-on, so cost is driven by actual usage rather than uptime.
 
 ### 7.1 Target GCP architecture
 
@@ -301,17 +305,17 @@ flowchart LR
     subgraph GCP["GCP Project"]
         AR["Artifact Registry\n(backend + frontend images)"]
         subgraph GKE["GKE Autopilot cluster (single zone)"]
-            FE["frontend Deployment\n1 replica, 0.25 vCPU/256Mi"]
-            BE["backend Deployment\n1 replica, 0.5 vCPU/1Gi\n(FastAPI + GraphQL)"]
-            VDB["chroma StatefulSet\n1 replica, 0.5 vCPU/1Gi\n+ 10Gi PVC (Chroma data + SQLite registry)"]
-            SVC_FE["Service: frontend"]
-            SVC_BE["Service: backend"]
-            ING["Ingress\n(GCE HTTP(S) Load Balancer)"]
+            KEDA["KEDA + HTTP Add-on\ninterceptor (always-on, tiny)\nqueues requests during cold start"]
+            FE["frontend Deployment\nminReplicas 0, maxReplicas 1\n0.25 vCPU/256Mi when awake"]
+            BE["backend Deployment\nminReplicas 0, maxReplicas 1\n0.5 vCPU/1Gi when awake\n(FastAPI + GraphQL)"]
+            VDB["chroma StatefulSet\nalways-on, 1 replica\n0.5 vCPU/1Gi + 10Gi PVC\n(Chroma data + SQLite registry)"]
+            SVC_FE["Service: frontend (ClusterIP)"]
+            SVC_BE["Service: backend (ClusterIP)"]
+            KEDA -->|"scales 0↔1 on request"| FE
+            KEDA -->|"scales 0↔1 on request"| BE
             SVC_FE --> FE
             SVC_BE --> BE
             BE --> VDB
-            ING --> SVC_FE
-            ING --> SVC_BE
         end
         SM["Secret Manager\n(GOOGLE_API_KEY)"]
         GCS["Cloud Storage bucket\n(uploaded + generated CV PDFs, backup)"]
@@ -319,16 +323,17 @@ flowchart LR
     end
     AR --> FE
     AR --> BE
-    Internet((Internet)) --> ING
+    DEV(("kubectl port-forward\n(demo/dev access, no public LB)")) --> KEDA
 ```
 
 **Design choices and why:**
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Cluster mode | **GKE Autopilot** | No node pools to size/patch, no cluster management fee, scales to the 3 tiny workloads without hand-picking a machine type. §8.5 shows Standard-mode numbers for comparison. |
-| Vector store + registry persistence | Chroma runs as its own `StatefulSet` + `PersistentVolumeClaim`; the SQLite candidate registry lives on the **same PVC**, different subpath | A Deployment's pod can reschedule to a different node, which would lose ephemeral filesystem state; a `StatefulSet` with a stable PVC is correct for anything stateful. Colocating SQLite here keeps the deployment to exactly one stateful workload. |
-| Ingress | GKE-native Ingress → GCP HTTP(S) Load Balancer | One public IP, path-based routing (`/` → frontend, `/graphql` and `/api/health` → backend), no separate ingress controller needed. |
+| Cluster mode | **GKE Autopilot** | No node pools to size/patch, no cluster management fee, bills per-pod resource request — which is exactly what makes scale-to-zero (below) translate directly into lower cost with no extra node-autoscaling layer. §8.5 shows Standard-mode numbers for comparison, including why Standard makes scale-to-zero more work, not less. |
+| **Scale-to-zero, wake-on-request** | **KEDA + the KEDA HTTP Add-on** (`kedacore/keda`, `kedacore/keda-add-ons-http`), one `HTTPScaledObject` per Deployment (frontend, backend), `minReplicaCount: 0`, `maxReplicaCount: 1`, idle scale-down window ~5 min | The interceptor sits in front of both Deployments, holds/queues the first incoming request while the target pod cold-starts, then forwards it — so "wake on request" doesn't drop or error the request that caused the wake-up. This is the standard scale-to-zero pattern for plain Kubernetes Deployments (as opposed to migrating to Knative Service CRDs, which would also work but is a bigger structural change for a POC that's already built on ordinary Deployments). |
+| **Chroma is deliberately excluded from scale-to-zero** | `chroma` StatefulSet stays always-on | Two reasons: (a) it's already the cheapest workload (§8.1), so scaling it saves little; (b) scaling it would create a cold-start ordering dependency — the backend waking up would need to wait on Chroma also waking up before it could serve a retrieval query, adding latency and a real "is Chroma ready yet" race condition to handle. Keeping the vector store warm and only cycling the request-facing tiers (frontend, backend) is the better cost/complexity trade for this scope — stated explicitly as a deliberate simplification, not an oversight. |
+| No public Load Balancer / Ingress | Removed entirely — no `Ingress` resource, no `Service type: LoadBalancer` | A GCE HTTP(S) Load Balancer forwarding rule is a **fixed** ~$18/month regardless of traffic — the opposite of the "sleep when idle" goal. Access for development and the demo recording is `kubectl port-forward svc/<name> <port>:<port>` against the (ClusterIP) service in front of the KEDA interceptor — free, and sufficient for a Loom-recorded demo rather than a permanently public URL. If a real clickable link is wanted later, a Cloudflare Tunnel pod (outbound-only, free tier) is the documented $0 alternative — not built for this submission, see §6. |
 | Secrets | GCP Secret Manager via CSI driver | Keeps the Gemini/OpenRouter key out of images, Terraform state, and committed YAML. |
 | Container images | Artifact Registry (regional, same region as the cluster) | Avoids Docker Hub rate limits, fast same-region pulls. |
 | Networking | Default VPC / auto-mode subnet | No compliance requirement, no real PII — a custom VPC/private cluster/Cloud NAT would be over-engineering for this scope. |
@@ -364,22 +369,41 @@ resource "google_storage_bucket" "cv_source" {
   force_destroy                = true
   uniform_bucket_level_access  = true
 }
+
+# KEDA + HTTP Add-on installed declaratively via the Helm provider,
+# keeping the scale-to-zero layer in the same terraform apply as the cluster.
+resource "helm_release" "keda" {
+  name       = "keda"
+  repository = "https://kedacore.github.io/charts"
+  chart      = "keda"
+  namespace  = "keda"
+  create_namespace = true
+}
+
+resource "helm_release" "keda_http_add_on" {
+  name       = "keda-http-add-on"
+  repository = "https://kedacore.github.io/charts"
+  chart      = "keda-add-ons-http"
+  namespace  = "keda"
+  depends_on = [helm_release.keda]
+}
 ```
 
 - Modules split by concern (`gke`, `artifact-registry`, `networking`), remote state on a GCS bucket (created once, out-of-band, before the rest of `apply` runs).
-- Deploy sequence: `terraform apply` (cluster, registry, secret, bucket) → build & push images → `kubectl apply -f infra/k8s/` → smoke test against the Ingress IP (both `/` for the app and `/graphql` for the API).
+- Deploy sequence: `terraform apply` (cluster, registry, secret, bucket, KEDA + HTTP Add-on via Helm) → build & push images → `kubectl apply -f infra/k8s/` (Deployments, StatefulSet, Services, `HTTPScaledObject`s) → smoke test via `kubectl port-forward` (both the app and `/graphql`), confirming a cold request after idle actually wakes the pods.
 
 ### 7.3 Kubernetes manifests — key points
 
-- `backend-deployment.yaml`: readiness probe on `/api/health` (the plain-REST exception from §1), explicit resource `requests`/`limits`, `CHROMA_HOST` env var, API key mounted from the Secret Manager–backed k8s Secret, `SQLITE_PATH` on the shared PVC subpath.
-- `chroma-statefulset.yaml`: `volumeClaimTemplates` with a 10Gi standard persistent disk, mounted at `/data`; Chroma writes under `/data/chroma`, the backend's SQLite file lives under `/data/registry` via a `subPath` mount into the backend pod.
-- `services.yaml`: `ClusterIP` for backend↔chroma (internal), `ClusterIP` for frontend/backend behind the shared Ingress.
-- `ingress.yaml`: single `Ingress`, GKE's default `gce` class, `/graphql` and `/api/health` → backend, `/*` → frontend.
+- `backend-deployment.yaml`: readiness probe on `/api/health` (the plain-REST exception from §1), explicit resource `requests`/`limits`, `CHROMA_HOST` env var, API key mounted from the Secret Manager–backed k8s Secret, `SQLITE_PATH` on the shared PVC subpath. **No `replicas` field pinned** — KEDA's `HTTPScaledObject` owns the replica count (0 or 1).
+- `chroma-statefulset.yaml`: `volumeClaimTemplates` with a 10Gi standard persistent disk, mounted at `/data`; Chroma writes under `/data/chroma`, the backend's SQLite file lives under `/data/registry` via a `subPath` mount into the backend pod. Fixed at 1 replica — not managed by KEDA (§7.1).
+- `services.yaml`: `ClusterIP` for backend↔chroma (internal), `ClusterIP` for frontend/backend — both are **targets** of the KEDA interceptor, not directly internet-facing.
+- `http-scaledobjects.yaml`: two `HTTPScaledObject` resources (frontend, backend) — `host`, target `service`/`port`, `minReplicaCount: 0`, `maxReplicaCount: 1`, `scaledownPeriod: 300` (5 minutes idle before scaling back to zero). This file replaces the `ingress.yaml` that would otherwise be here — there is no Kubernetes `Ingress` resource in this deployment.
 
 ### 7.4 What this demonstrates
 
 - Deployment vs. StatefulSet judgment, and a deliberate choice to colocate a small relational file with the vector store instead of reaching for a second managed database.
 - Autopilot vs. Standard evaluated with real numbers (§8.5), not asserted.
+- A real scale-to-zero implementation (KEDA HTTP Add-on) rather than just "Kubernetes can autoscale" — including the request-queueing cold-start problem and why Chroma was deliberately left out of it.
 - Secrets kept out of images/state/YAML via Secret Manager + CSI.
 - A Terraform module layout that mirrors how this would grow, rather than one monolithic `main.tf`.
 
@@ -389,31 +413,59 @@ resource "google_storage_bucket" "cv_source" {
 
 All figures are **estimates** based on published GCP list pricing as of early/mid-2026; verify against the [GCP Pricing Calculator](https://cloud.google.com/products/calculator) before treating them as final. No committed/sustained-use discounts assumed; no free-trial credit applied — see §8.6.
 
-Switching the API surface from REST to GraphQL, and the routing/state-management stack on the frontend, changes **$0** in the infra cost model — same container count, same resource sizing, same persistent volume. GraphQL vs. REST is a request-shape difference inside the existing backend pod.
+Two changes since the previous revision, both cost-driven: (1) no Load Balancer (§7.1) — removes a flat ~$18/month regardless of usage; (2) frontend + backend **scale to zero when idle and wake on request** via KEDA — turns "cost while deployed" into "cost while actually used." GraphQL vs. REST itself remains a **$0** infra delta — same container count, same resource sizing, same persistent volume.
 
 ### 8.1 Workload sizing assumption
 
-| Pod | vCPU request | Memory request | Notes |
-|---|---|---|---|
-| frontend (nginx serving built React + shadcn + TanStack Router bundle) | 0.25 | 0.5 Gi | |
-| backend (FastAPI + Strawberry GraphQL + LangChain + local embeddings + SQLite) | 0.5 | 1 Gi | Strawberry's schema overhead is negligible next to the embedding model already dominating this pod's memory |
-| chroma (StatefulSet) | 0.5 | 1 Gi | Trivial corpus size |
-| **Total requested** | **1.25 vCPU** | **2.5 Gi** | Rounded to **1.5 vCPU / 3 Gi** for Autopilot's per-pod rounding |
+| Pod | vCPU request | Memory request | Scaling | Notes |
+|---|---|---|---|---|
+| frontend (nginx, React + shadcn + TanStack Router bundle) | 0.25 | 0.5 Gi | 0↔1 via KEDA | |
+| backend (FastAPI + Strawberry GraphQL + LangChain + local embeddings + SQLite) | 0.5 | 1 Gi | 0↔1 via KEDA | Cold start includes loading the sentence-transformers embedding model into memory — see §8.4 for the latency trade-off |
+| chroma (StatefulSet) | 0.5 | 1 Gi | **always 1** (not scaled, §7.1) | Trivial corpus size |
+| KEDA operator + HTTP Add-on interceptor | ~0.2 | ~0.3 Gi | always-on (this *is* the always-on front door) | Small, fixed system overhead — the cost of having scale-to-zero at all |
 
-### 8.2 GKE Autopilot — running cost
+### 8.2 GKE Autopilot — cost model: idle vs. active
 
-| Item | Rate (approx., `us-central1`) | Monthly (730 hrs, 24/7) |
+Because frontend and backend scale to zero, there are two rates instead of one flat monthly number:
+
+| State | What's running | vCPU | Memory | Rate |
+|---|---|---|---|---|
+| **Idle** (no requests for 5+ min) | chroma + KEDA interceptor only | 0.7 | 1.3 Gi | **≈ $0.0375/hr** |
+| **Active** (frontend + backend awake) | all four workloads | 1.45 | 2.8 Gi | **≈ $0.0782/hr** |
+
+Fixed costs on top of either state, all small:
+
+| Item | Rate | Monthly |
 |---|---|---|
-| vCPU | ~$0.0445 / vCPU-hr | 1.5 × 0.0445 × 730 ≈ **$48.7** |
-| Memory | ~$0.0049 / GiB-hr | 3 × 0.0049 × 730 ≈ **$10.7** |
-| Persistent disk (10Gi, Chroma + SQLite) | ~$0.04 / GB-month | **$0.40** |
-| HTTP(S) Load Balancer | ~$0.025/hr + negligible data | ≈ **$18.3** |
+| Persistent disk (10Gi, Chroma + SQLite) | ~$0.04/GB-month | **$0.40** |
 | Artifact Registry storage | ~$0.10/GB-month | **< $0.50** |
 | Cloud Storage (CV PDF backups, few MB) | ~$0.02/GB-month | **< $0.05** |
 | Secret Manager | free tier | **$0.00** |
-| **Total if left running 24/7 for a month** | | **≈ $79/month** |
+| Load Balancer | — removed, see §7.1 | **$0.00** |
 
-### 8.3 LLM / embedding API cost
+| Ceiling scenarios | Monthly |
+|---|---|
+| Never scales down (defeats the purpose — for comparison only) | 0.0782 × 730 + $0.95 ≈ **$58/month** |
+| Truly idle the entire month, zero requests ever | 0.0375 × 730 + $0.95 ≈ **$28.3/month** |
+
+### 8.3 Realistic cost for the actual review use case
+
+A reviewer opening the app a handful of times over a multi-day window spends most of that window idle:
+
+| Scenario | Idle time | Active time | Estimated cost |
+|---|---|---|---|
+| Demo recording session (actively driving it) | 0 hrs | ~1 hr | **≈ $0.08** |
+| Left live for a full review day, ~30 min of actual clicking | 7.5 hrs | 0.5 hrs | **≈ $0.32** |
+| Left live for a 3-day review window, ~1 hr of actual use total | 71 hrs | 1 hr | **≈ $2.74** |
+| Left live for a full month, ~5 hrs of actual use total | 725 hrs | 5 hrs | **≈ $27.6** |
+
+**This is the headline number:** deploying via `terraform apply` and leaving it live for the *entire* multi-day review window — not tearing it down at all — costs on the order of **$1–3 total**, because it's asleep for nearly all of that window. That's a materially better story for a live, clickable-during-review deployment than the earlier "destroy immediately to control cost" guidance, and it's what scale-to-zero is for.
+
+### 8.4 Trade-off: cold-start latency
+
+Scale-to-zero isn't free in UX terms — the request that wakes a sleeping pod waits on that pod's cold start. For this stack: frontend cold start is fast (static nginx, ~1–2s); backend cold start is the one to watch — pulling the container image (fast if cached on the node) plus loading the sentence-transformers embedding model into memory, realistically **a few seconds to ~10s** on first request after idle. The KEDA HTTP Add-on interceptor queues that first request rather than dropping it, so the user just sees a slower first response, not an error. `scaledownPeriod: 300` (5 min) is a tunable balance — shorter saves more when idle, longer avoids repeated cold starts during an active review session; worth stating as a configurable trade-off in the video rather than a fixed answer.
+
+### 8.5 LLM / embedding API cost
 
 | Item | Cost |
 |---|---|
@@ -421,26 +473,13 @@ Switching the API surface from REST to GraphQL, and the routing/state-management
 | Gemini 2.0 Flash — chat answers + on-demand candidate generation, free tier | **$0.00** at demo volume (order of 1M tokens/day free) |
 | Paid-model fallback, worst case | **< $0.25** for a full review session including several "Generate candidate" clicks |
 
-### 8.4 Realistic run duration
+### 8.6 GKE Standard, for comparison
 
-| Strategy | Duration | Estimated cost |
-|---|---|---|
-| Deploy for the recording session only, then `terraform destroy` | ~1–2 hrs | **≈ $0.15 – $0.30** |
-| Leave live for the full review window | 8 hrs | **≈ $1.10** |
-| Leave live for a few days | 72 hrs | **≈ $9.90** |
-| Left running unattended a full month (avoid) | 730 hrs | **≈ $79** |
+Standard mode complicates scale-to-zero rather than simplifying it: KEDA can still scale pod replicas to zero, but Standard bills by **node**, not by pod — so the underlying VM(s) keep costing money unless the **node pool itself** also scales down (cluster autoscaler with `--min-nodes=0`), which adds a second autoscaling layer on top of KEDA and a slower cold-start path (provisioning a fresh VM is much slower than Autopilot binpacking a pod onto already-available capacity). Autopilot's per-pod billing means the KEDA savings in §8.2 are realized directly, with no additional node-level autoscaling to configure — a concrete reason (not just "less ops") to prefer Autopilot once scale-to-zero is in the picture. Standard's flat-rate numbers, for reference: 2 × `e2-small` nodes ≈ $24.5/month continuous, zonal cluster management fee waived for the first cluster — but that's the *always-on* figure, since realizing any idle savings on Standard requires the extra node-autoscaling work described above.
 
-**Recommendation:** leave it live for the review window (a few days), then `terraform destroy` — a real, clickable URL for well under $10 total.
+### 8.7 Free credit
 
-### 8.5 GKE Standard, for comparison
-
-- First zonal cluster's $0.10/hr management fee is waived per billing account.
-- 2 × `e2-small` nodes ≈ $0.0336/hr → ~$24.5/month continuous, plus the same ~$18.3/month LB.
-- **Total ≈ $43/month continuous**, cheaper steady-state than Autopilot at this fixed tiny size, at the cost of owning node sizing/upgrades. **Recommendation: Autopilot for the submission itself; keep this comparison in the plan as evidence the trade-off was actually evaluated.**
-
-### 8.6 Free credit
-
-New GCP billing accounts get **$300 of free credit for 90 days** (verify current terms at signup). At the usage in §8.4, this entire exercise — including live GKE hosting for the full review window — costs **$0 out of pocket**.
+New GCP billing accounts get **$300 of free credit for 90 days** (verify current terms at signup). Even without the credit, the realistic figures in §8.3 mean this entire exercise — deployed and left live for the whole review window — costs a few dollars at most; with the credit, it's **$0 out of pocket** either way.
 
 ---
 
@@ -453,7 +492,7 @@ Roughly **50% RAG/backend (incl. GraphQL schema), 30% frontend shell (incl. TanS
 | Day 1 AM | Backend RAG core: ingestion pipeline, Chroma indexing, retrieval chain, grounding prompt; candidate registry (SQLite) + shared `generate_candidate()` / `ingest_candidate()` functions |
 | Day 1 PM | GraphQL layer: Strawberry schema + resolvers (`candidates`, `defaultGenerationPrompt`, `uploadCandidate` w/ multipart, `generateCandidate`, `chat`); pre-seed 25–30 candidates via the batch script; exercise the schema via the GraphiQL explorer before touching frontend |
 | Day 2 AM | Frontend shell: TanStack Router setup (`__root`, `index`), `AppShell` (header + responsive sidebar), `CandidateList`, `UploadCandidateDialog`, `GenerateCandidateSheet`, `ChatWindow` — wired via TanStack Query + `graphql-request`, shadcn `neutral` theme applied throughout |
-| Day 2 PM (first half) | `docker-compose` end-to-end pass (matches eventual k8s topology) → `terraform apply` (GKE Autopilot, Artifact Registry, Secret Manager, GCS) → build & push images → `kubectl apply` → smoke test against the Ingress IP |
+| Day 2 PM (first half) | `docker-compose` end-to-end pass (matches eventual k8s topology) → `terraform apply` (GKE Autopilot, Artifact Registry, Secret Manager, GCS, KEDA + HTTP Add-on via Helm) → build & push images → `kubectl apply` (Deployments, StatefulSet, Services, `HTTPScaledObject`s) → smoke test via `kubectl port-forward`, confirming pods scale to zero after ~5 min idle and wake on the next request |
 | Day 2 PM (second half) | README, this plan doc, architecture diagram export, Loom recording |
 
 ---
@@ -462,4 +501,4 @@ Roughly **50% RAG/backend (incl. GraphQL schema), 30% frontend shell (incl. TanS
 
 1. **The Process (~1 min):** show the app header/branding, the candidate list, and 1–2 CV PDFs; briefly show the ingestion step (chunking + Chroma).
 2. **The Demo (~2.5 min):** upload a candidate via the sidebar button; click "Generate candidate," show the explanation + editable prompt in the bottom sheet, generate one; ask the brief's example questions in the chat panel — *"Who has experience with Python?"*, *"Which candidate graduated from UPC?"*, *"Summarize the profile of \<name\>"* — and show the sources line under each answer.
-3. **Technical Highlight (~1–1.5 min):** pick one of — (a) the single shared ingestion path behind upload/generate/batch-seed, exposed through one GraphQL schema instead of four REST routes, (b) the GraphQL multipart file-upload spec as the one genuinely fiddly integration point, (c) the grounding prompt design, (d) the live GKE/Terraform deployment with the real cost number from §8.4.
+3. **Technical Highlight (~1–1.5 min):** pick one of — (a) the single shared ingestion path behind upload/generate/batch-seed, exposed through one GraphQL schema instead of four REST routes, (b) the GraphQL multipart file-upload spec as the one genuinely fiddly integration point, (c) the grounding prompt design, (d) **scale-to-zero in action** — run `kubectl get pods -w` in a terminal, let the app sit idle until frontend/backend drop to 0 replicas, then fire a request and watch them scale back to 1, with the real idle-vs-active cost numbers from §8.3.
