@@ -1,69 +1,169 @@
 # Leadtech ATS — AI-Powered CV Screener
 
-RAG-based CV screening SaaS: upload or generate fake candidate CVs (PDF), then
-chat with an LLM that answers **only** from the CVs on file, with source
-citations. Built for the Leadtech Full-Stack AI Engineer technical task.
-
-Full design rationale, cost model, and deployment story: **[PLAN.md](PLAN.md)**.
+Prototype for the Leadtech Full-Stack AI Engineer task: generate/upload fake CV
+PDFs, index them with a RAG pipeline, and chat with an LLM about the candidates
+with source citations.
 
 ## Stack
 
 | Layer | Tech |
 |---|---|
-| Frontend | React + Vite + TanStack Router + TanStack Query + shadcn/ui (grayscale theme) |
-| API | FastAPI + Strawberry GraphQL (single `/graphql` endpoint, multipart uploads) |
-| RAG | LangChain (PyPDFLoader, splitter, grounded LCEL chain) + Gemini 2.0 Flash |
-| Vector store | Chroma (standalone server) with its default ONNX MiniLM embeddings — no torch |
-| Registry | SQLite via SQLModel (candidate list) |
-| Infra | Terraform + k3s on one Always-Free `e2-micro` GCP VM, KEDA scale-to-zero |
+| Frontend | React, Vite, TanStack Router, TanStack Query, Tailwind |
+| Backend | FastAPI, Strawberry GraphQL |
+| AI/RAG | LangChain, Gemini, Chroma |
+| Storage | SQLite + local PDF files |
+| Local run | Docker Compose |
+| Optional deploy | Terraform + k3s on one GCP VM |
 
 ## Run locally
 
+1. Create `.env`:
+
 ```bash
-cp .env.example .env          # add your GOOGLE_API_KEY (free: aistudio.google.com/apikey)
-docker compose up --build     # frontend :5173, backend :8000, chroma :8001
+cp .env.example .env
 ```
 
-- App: http://localhost:5173
-- GraphiQL explorer: http://localhost:8000/graphql
-- Health probe: http://localhost:8000/api/health
+2. Add your Gemini key from <https://aistudio.google.com/apikey>:
 
-### Pre-seed 25–30 candidates (optional — the UI's Generate button also works)
+```bash
+GOOGLE_API_KEY=your_key_here
+```
+
+3. Start everything:
+
+```bash
+docker compose up
+```
+
+Open:
+
+- App: <http://localhost:5173>
+- GraphQL: <http://localhost:8000/graphql>
+- Health: <http://localhost:8000/api/health>
+
+The frontend runs with Vite hot reload inside Docker, so UI changes do not need a
+Docker rebuild.
+
+## Add demo candidates
+
+Use the **Generate candidate** button in the UI, or pre-seed a batch:
 
 ```bash
 docker compose run --rm backend python /srv/scripts/generate_cvs.py --count 28
 ```
 
-## Deploy to GCP (Terraform + k3s, ~$0/month — PLAN.md section 8)
+Local generated data lives in `data/`.
+
+## Stop or reset
+
+```bash
+docker compose down
+```
+
+Reset all local data:
+
+```bash
+docker compose down -v
+rm -rf data/
+```
+
+## Optional GCP deploy
+
+You need `gcloud`, `terraform`, `kubectl`, Docker, and a GCP project with billing
+enabled.
+
+1. Enable APIs:
+
+```bash
+gcloud services enable \
+  compute.googleapis.com \
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com \
+  storage.googleapis.com
+```
+
+2. Create infrastructure:
 
 ```bash
 cd infra/terraform
 terraform init
-terraform apply -var project_id=YOUR_PROJECT -var my_ip_cidr=YOUR_IP/32
-# Outputs include app_hostname_sslip — a ready-made zero-cost hostname like
-# ats.34.42.1.2.sslip.io (or use your own domain: one A record -> the VM IP).
-
-# Build & push images to Artifact Registry (output shows the repo URL), then:
-gcloud compute ssh leadtech-ats-poc --command 'sudo cat /etc/rancher/k3s/k3s.yaml' > kubeconfig
-# (edit server: IP in kubeconfig to the VM's external IP)
-
-# Set the hostname in infra/k8s/ingress.yaml (host) + config.yaml
-# (ALLOWED_ORIGINS), and your email in traefik-tls.yaml (Let's Encrypt), then:
-KUBECONFIG=./kubeconfig kubectl apply -f ../k8s/
+terraform apply \
+  -var project_id=YOUR_PROJECT_ID \
+  -var my_ip_cidr="$(curl -s ifconfig.me)/32"
 ```
 
-The VM startup script installs k3s + KEDA automatically; frontend/backend scale
-to zero when idle and wake on the first request. PDFs + SQLite are snapshotted
-to Cloud Storage twice a day and auto-restored onto a fresh volume. Serving:
-Traefik terminates HTTPS via Let's Encrypt (reliable with your own domain,
-best-effort on sslip.io — plain HTTP always works as fallback), and the
-backend's CORS is locked to the app hostname (PLAN.md sections 8.2b / 8.5a).
+3. Add the Gemini key to Secret Manager:
+
+```bash
+printf '%s' 'YOUR_GOOGLE_API_KEY' | \
+  gcloud secrets versions add leadtech-ats-llm-api-key --data-file=-
+```
+
+4. Build and push images:
+
+```bash
+gcloud auth configure-docker us-central1-docker.pkg.dev
+REPO="us-central1-docker.pkg.dev/YOUR_PROJECT_ID/leadtech-ats"
+
+docker buildx build --platform linux/amd64 -t "$REPO/backend:latest" --push ./backend
+docker buildx build --platform linux/amd64 -t "$REPO/frontend:latest" --push ./frontend
+```
+
+5. Replace placeholders in `infra/k8s/`:
+
+- image paths in `backend-deployment.yaml` and `frontend-deployment.yaml`
+- `GCS_BUCKET` in `config.yaml`
+- hostname in `config.yaml` and `ingress.yaml`
+- email in `traefik-tls.yaml`
+
+6. Get kubeconfig and open an SSH tunnel:
+
+```bash
+gcloud compute ssh leadtech-ats-poc \
+  --zone us-central1-a \
+  --command 'sudo cat /etc/rancher/k3s/k3s.yaml' > kubeconfig
+
+gcloud compute ssh leadtech-ats-poc \
+  --zone us-central1-a \
+  -- -L 6443:127.0.0.1:6443
+```
+
+Keep the tunnel running in that terminal.
+
+7. Apply the app:
+
+```bash
+KUBECONFIG=./kubeconfig kubectl create secret generic llm-api-key \
+  --from-literal=GOOGLE_API_KEY="$(gcloud secrets versions access latest \
+    --secret=leadtech-ats-llm-api-key)" \
+  --dry-run=client -o yaml | KUBECONFIG=./kubeconfig kubectl apply -f -
+
+KUBECONFIG=./kubeconfig kubectl apply -f ../k8s/
+KUBECONFIG=./kubeconfig kubectl get pods
+```
+
+Open the Terraform output `app_hostname_sslip`, for example:
+
+```text
+http://ats.34.42.1.2.sslip.io
+```
 
 ## Repo map
 
+```text
+backend/          FastAPI + GraphQL + RAG
+frontend/         React/Vite UI
+scripts/          CV generation and k3s helper scripts
+infra/terraform/  GCP infrastructure
+infra/k8s/        Kubernetes manifests
+PLAN.md           Full architecture and cost rationale
 ```
-backend/    FastAPI + GraphQL + RAG pipeline
-frontend/   React shell (candidate list, upload dialog, generate sheet, chat)
-scripts/    batch CV pre-seed, k3s install (VM startup), manual backup restore
-infra/      Terraform (VPC, VM, IAM, GCS, Artifact Registry) + k8s manifests
+
+## Troubleshooting
+
+```bash
+docker compose ps
+docker compose logs -f frontend
+docker compose logs -f backend
+docker compose logs -f chroma
 ```
