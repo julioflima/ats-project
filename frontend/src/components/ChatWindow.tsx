@@ -1,4 +1,4 @@
-import { SendHorizontal } from "lucide-react";
+import { Bot, SendHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { type ChatMessage, MessageBubble } from "@/components/MessageBubble";
@@ -37,14 +37,28 @@ export function ChatWindow() {
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+    <div className="flex h-full flex-col bg-[radial-gradient(circle_at_20%_0%,var(--muted),transparent_34%),linear-gradient(180deg,var(--background),var(--secondary))]">
+      <div className="flex-1 space-y-3 overflow-y-auto p-5">
         {messages.length === 0 && (
           <div className="flex h-full items-center justify-center">
-            <p className="max-w-md text-center text-sm text-muted-foreground">
-              Ask anything about the CVs on file — e.g. “Who has experience with Python?”,
-              “Which candidate graduated from UPC?”, or “Summarize the profile of Jane Doe.”
-            </p>
+            <div className="max-w-sm rounded-3xl border border-border/80 bg-background/80 p-5 text-center shadow-sm">
+              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-foreground text-background">
+                <Bot className="h-5 w-5" />
+              </div>
+              <h3 className="mt-4 text-base font-semibold text-foreground">Start with a precise question</h3>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Ask about skills, education, seniority, summaries, or comparisons across the CVs
+                on file.
+              </p>
+              <div className="mt-4 grid gap-2 text-left text-xs text-muted-foreground">
+                <span className="rounded-full border border-border bg-background px-3 py-2">
+                  Who has production Python experience?
+                </span>
+                <span className="rounded-full border border-border bg-background px-3 py-2">
+                  Compare the strongest frontend candidates.
+                </span>
+              </div>
+            </div>
           </div>
         )}
         {messages.map((message, index) => (
@@ -55,7 +69,7 @@ export function ChatWindow() {
         )}
         <div ref={bottomRef} />
       </div>
-      <form onSubmit={onSubmit} className="flex gap-2 border-t border-border p-4">
+      <form onSubmit={onSubmit} className="flex gap-2 border-t border-border/70 bg-background/90 p-4">
         <Input
           value={question}
           onChange={(event) => setQuestion(event.target.value)}

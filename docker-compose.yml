@@ -1,5 +1,5 @@
-# Local dev — same three-service topology as the k3s deployment (PLAN.md
-# section 4): frontend (Caddy) + backend (FastAPI/GraphQL) + chroma (server).
+# Local dev — frontend runs Vite with hot reload; backend and chroma keep the
+# same service topology used by deployment.
 services:
   chroma:
     image: chromadb/chroma:latest
@@ -30,8 +30,19 @@ services:
       - chroma
 
   frontend:
-    build: ./frontend
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0"
     ports:
-      - "5173:80"
+      - "5173:5173"
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+      VITE_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
     depends_on:
       - backend
+
+volumes:
+  frontend_node_modules:
