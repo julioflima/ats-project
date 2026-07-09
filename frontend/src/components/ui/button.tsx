@@ -19,6 +19,10 @@ const buttonVariants = cva(
         sm: "h-8 rounded-md px-3 text-xs",
         lg: "h-10 rounded-md px-8",
         icon: "h-9 w-9",
+        // Rounded/prominent action buttons (the toolbar's Upload/Generate).
+        pill: "h-11 rounded-full px-5 text-sm",
+        // The bottom-right floating chat trigger.
+        fab: "h-14 w-14 rounded-full shadow-lg",
       },
     },
     defaultVariants: { variant: "default", size: "default" },
