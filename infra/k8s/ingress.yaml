@@ -20,7 +20,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: ats.VM_IP.sslip.io # <- set me (see header comment)
+    - host: ats.35.255.138.44.sslip.io # <- terraform output app_hostname_sslip
       http:
         paths:
           - path: /

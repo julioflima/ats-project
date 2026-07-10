@@ -328,6 +328,8 @@ def _normalize_name(name: str) -> str:
 def generate_candidate(description: str, forbidden_names: set[str] | None = None) -> CandidateJSON:
     """One user-authored (or seed-tuple) description in, one structured CV out."""
     forbidden_names = forbidden_names or set()
+    if settings.LOCAL_CV_TEXT_ONLY:
+        return _local_candidate(description, forbidden_names)
     normalized_forbidden = {_normalize_name(name) for name in forbidden_names}
     forbidden_text = ", ".join(sorted(forbidden_names)) or "none"
     prompt = prompts.CANDIDATE_JSON_INSTRUCTIONS.format(

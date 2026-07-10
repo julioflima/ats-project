@@ -5,19 +5,20 @@ kind: ConfigMap
 metadata:
   name: app-config
 data:
-  GCS_BUCKET: "YOUR_PROJECT-leadtech-ats-cvs" # <- terraform output cv_bucket
+  GCS_BUCKET: "leadtech-ats-demo-leadtech-ats-cvs" # <- terraform output cv_bucket
   CHROMA_HOST: "chroma"
   CHROMA_PORT: "8000"
   SQLITE_PATH: "/data/registry/app.db"
   CVS_DIR: "/data/cvs"
   OPENROUTER_MODEL: "tencent/hy3:free"
   OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1"
-  OPENROUTER_APP_URL: "http://ats.VM_IP.sslip.io"
+  OPENROUTER_APP_URL: "http://ats.35.255.138.44.sslip.io"
   OPENROUTER_APP_NAME: "Leadtech ATS"
   PORTRAIT_IMAGE_URL: "https://image.pollinations.ai/prompt"
   POLLINATIONS_TEXT_URL: "https://text.pollinations.ai"
   POLLINATIONS_TEXT_MODEL: "openai"
+  LOCAL_CV_TEXT_ONLY: "false"
   # CORS lockdown for the deployed profile — must match the Ingress host
   # (ingress.yaml). List both schemes while TLS is being set up; trim to
   # https-only once certs are issued.
-  ALLOWED_ORIGINS: "http://ats.VM_IP.sslip.io,https://ats.VM_IP.sslip.io"
+  ALLOWED_ORIGINS: "http://ats.35.255.138.44.sslip.io,https://ats.35.255.138.44.sslip.io"

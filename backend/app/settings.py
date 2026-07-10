@@ -31,6 +31,7 @@ OPENROUTER_APP_NAME = os.environ.get("OPENROUTER_APP_NAME", "Leadtech ATS")
 PORTRAIT_IMAGE_URL = os.environ.get("PORTRAIT_IMAGE_URL", "https://image.pollinations.ai/prompt")
 POLLINATIONS_TEXT_URL = os.environ.get("POLLINATIONS_TEXT_URL", "https://text.pollinations.ai")
 POLLINATIONS_TEXT_MODEL = os.environ.get("POLLINATIONS_TEXT_MODEL", "openai")
+LOCAL_CV_TEXT_ONLY = os.environ.get("LOCAL_CV_TEXT_ONLY", "").lower() in {"1", "true", "yes"}
 
 # Optional off-VM backup of every uploaded/generated PDF (PLAN.md section 8.5a).
 # Empty/unset means "skip silently" so local dev needs no GCP credentials.
