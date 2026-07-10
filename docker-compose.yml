@@ -19,8 +19,14 @@ services:
       CHROMA_PORT: "8000"
       SQLITE_PATH: /data/registry/app.db
       CVS_DIR: /data/cvs
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-tencent/hy3:free}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_APP_URL: ${OPENROUTER_APP_URL:-http://localhost:5173}
+      OPENROUTER_APP_NAME: ${OPENROUTER_APP_NAME:-Leadtech ATS}
+      PORTRAIT_IMAGE_URL: ${PORTRAIT_IMAGE_URL:-https://image.pollinations.ai/prompt}
+      POLLINATIONS_TEXT_URL: ${POLLINATIONS_TEXT_URL:-https://text.pollinations.ai}
+      POLLINATIONS_TEXT_MODEL: ${POLLINATIONS_TEXT_MODEL:-openai}
       GCS_BUCKET: ${GCS_BUCKET:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
     volumes:

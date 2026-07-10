@@ -20,10 +20,17 @@ CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8000"))
 CHROMA_PATH = os.environ.get("CHROMA_PATH", "data/chroma")
 CHROMA_COLLECTION = os.environ.get("CHROMA_COLLECTION", "cvs")
 
-# LLM (Google AI Studio free tier by default). "gemini-flash-latest" is
-# Google's rolling alias for the current Flash model — pinned model names
-# (e.g. gemini-2.0-flash) rotate out of the free tier as new ones ship.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+# LLM through OpenRouter's OpenAI-compatible API.
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "tencent/hy3:free")
+OPENROUTER_APP_URL = os.environ.get("OPENROUTER_APP_URL", "http://localhost:5173")
+OPENROUTER_APP_NAME = os.environ.get("OPENROUTER_APP_NAME", "Leadtech ATS")
+
+# Free text-to-image endpoint used only for fictional candidate portraits.
+PORTRAIT_IMAGE_URL = os.environ.get("PORTRAIT_IMAGE_URL", "https://image.pollinations.ai/prompt")
+POLLINATIONS_TEXT_URL = os.environ.get("POLLINATIONS_TEXT_URL", "https://text.pollinations.ai")
+POLLINATIONS_TEXT_MODEL = os.environ.get("POLLINATIONS_TEXT_MODEL", "openai")
 
 # Optional off-VM backup of every uploaded/generated PDF (PLAN.md section 8.5a).
 # Empty/unset means "skip silently" so local dev needs no GCP credentials.

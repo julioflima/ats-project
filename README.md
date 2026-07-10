@@ -10,7 +10,7 @@ with source citations.
 |---|---|
 | Frontend | React, Vite, TanStack Router, TanStack Query, Tailwind |
 | Backend | FastAPI, Strawberry GraphQL |
-| AI/RAG | LangChain, Gemini, Chroma |
+| AI/RAG | LangChain, OpenRouter, Chroma |
 | Storage | SQLite + local PDF files |
 | Local run | Docker Compose |
 | Optional deploy | Terraform + k3s on one GCP VM |
@@ -23,10 +23,12 @@ with source citations.
 cp .env.example .env
 ```
 
-2. Add your Gemini key from <https://aistudio.google.com/apikey>:
+2. Add your OpenRouter key:
 
 ```bash
-GOOGLE_API_KEY=your_key_here
+OPENROUTER_API_KEY=your_key_here
+OPENROUTER_MODEL=tencent/hy3:free
+PORTRAIT_IMAGE_URL=https://image.pollinations.ai/prompt
 ```
 
 3. Start everything:
@@ -92,10 +94,10 @@ terraform apply \
   -var my_ip_cidr="$(curl -s ifconfig.me)/32"
 ```
 
-3. Add the Gemini key to Secret Manager:
+3. Add the OpenRouter key to Secret Manager:
 
 ```bash
-printf '%s' 'YOUR_GOOGLE_API_KEY' | \
+printf '%s' 'YOUR_OPENROUTER_API_KEY' | \
   gcloud secrets versions add leadtech-ats-llm-api-key --data-file=-
 ```
 
@@ -134,7 +136,7 @@ Keep the tunnel running in that terminal.
 
 ```bash
 KUBECONFIG=./kubeconfig kubectl create secret generic llm-api-key \
-  --from-literal=GOOGLE_API_KEY="$(gcloud secrets versions access latest \
+  --from-literal=OPENROUTER_API_KEY="$(gcloud secrets versions access latest \
     --secret=leadtech-ats-llm-api-key)" \
   --dry-run=client -o yaml | KUBECONFIG=./kubeconfig kubectl apply -f -
 

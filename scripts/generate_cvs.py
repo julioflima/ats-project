@@ -4,7 +4,7 @@
 Calls the exact same generate_candidate() / ingest_candidate() functions the
 GraphQL mutations use — one code path behind three entry points.
 
-Usage (from the repo root, with the chroma container up and GOOGLE_API_KEY set):
+Usage (from the repo root, with the chroma container up):
 
     python scripts/generate_cvs.py --count 28 --out data/cvs
 
@@ -57,7 +57,9 @@ def seed_descriptions(count: int) -> list[str]:
         descriptions.append(
             f"Create a realistic fictional candidate: a {seniority} {role} based in "
             f"{city}, skilled in {skills}, with experience in the {industry} industry. "
-            f"Include one career detail that makes the profile feel human."
+            f"Include realistic contact information, an AI-generated portrait in the PDF, "
+            f"work experience, skills, education, languages, and one career detail that "
+            f"makes the profile feel human."
         )
     return descriptions
 
@@ -81,8 +83,16 @@ def main() -> int:
 
     if args.out:
         os.environ["CVS_DIR"] = args.out
-    if not os.environ.get("GOOGLE_API_KEY"):
-        print("GOOGLE_API_KEY is not set — candidate text generation needs it.", file=sys.stderr)
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if openrouter_key and not openrouter_key.startswith("sk-or-v1-"):
+        print(
+            "OPENROUTER_API_KEY must be an OpenRouter key starting with 'sk-or-v1-', "
+            "or left empty to use the free fallback text endpoint.",
+            file=sys.stderr,
+        )
+        return 1
+    if not 1 <= args.count <= 30:
+        print("--count must be between 1 and 30 for the business-case dataset.", file=sys.stderr)
         return 1
 
     from app import settings
@@ -90,9 +100,14 @@ def main() -> int:
 
     if not args.no_ingest:
         from app.rag.loader import ingest_candidate
+        from app import registry
+        used_names = {row.name for row in registry.list_candidates()}
+    else:
+        used_names = set()
 
     for i, description in enumerate(seed_descriptions(args.count), start=1):
-        candidate = generate_candidate(description)
+        candidate = generate_candidate(description, forbidden_names=used_names)
+        used_names.add(candidate.name)
         pdf = render_pdf(candidate)
         filename = candidate_filename(candidate.name)
         if args.no_ingest:

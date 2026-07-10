@@ -34,7 +34,8 @@ async def upload_candidate(file) -> Candidate:
 
 async def generate_candidate(prompt: str) -> Candidate:
     def _generate() -> registry.Candidate:
-        candidate_json = generator.generate_candidate(prompt)
+        existing_names = {row.name for row in registry.list_candidates()}
+        candidate_json = generator.generate_candidate(prompt, forbidden_names=existing_names)
         pdf_bytes = generator.render_pdf(candidate_json)
         filename = generator.candidate_filename(candidate_json.name)
         return loader.ingest_candidate(

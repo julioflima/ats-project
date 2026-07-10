@@ -7,10 +7,10 @@ textarea, and reused verbatim by scripts/generate_cvs.py — one copy, no drift.
 
 GENERATION_EXPLANATION = (
     "Describe the candidate you want: role, seniority, industry, location, and "
-    "3-5 key skills. The model returns a structured CV (summary, work history, "
-    "skills, education, languages) that is rendered to PDF and indexed for chat. "
-    "Being specific about tech stack and years of experience produces more "
-    "useful, differentiated candidates for testing search."
+    "3-5 key skills. The model returns a complete realistic CV with contact "
+    "information, a summary, quantified work history, skills, education, and "
+    "languages. Being specific about tech stack and years of experience produces "
+    "more useful, differentiated candidates for testing search."
 )
 
 GENERATION_TEMPLATE = (
@@ -44,9 +44,17 @@ Generate one realistic but entirely fictional CV based on this description:
 
 Constraints:
 - The person must not be a real, identifiable individual.
-- Include 3 to 5 previous jobs with 2-4 concrete, quantified achievements each.
-- Skills must be consistent with the work history.
-- Dates must be coherent (no overlaps, most recent job first).
+- The full name must be unique and must not repeat any forbidden name listed in
+  the description.
+- Use a realistic full name appropriate to the selected location/language.
+- Include realistic contact information: city/country, email, and phone.
+- Include 2 to 5 jobs with 2-4 concrete, quantified achievements each.
+- Include 8 to 14 skills that are consistent with the work history.
+- Include 1 to 3 education entries with institution and year.
+- Include 2 to 4 languages with proficiency levels.
+- Dates must be coherent: no overlaps, most recent job first.
+- Make the CV feel realistic: specific companies, products, metrics, tools, and
+  human career details, but no real identifiable person.
 """
 
 EXTRACT_NAME_ROLE_PROMPT = """\

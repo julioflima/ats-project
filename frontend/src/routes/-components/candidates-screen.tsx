@@ -5,6 +5,7 @@ import { useCandidates } from "@/api";
 import { CandidateListItem } from "@/routes/-components/candidate-list-item";
 import { GenerateCandidatePanel } from "@/routes/-components/generate-candidate-panel";
 import { PdfPreview } from "@/routes/-components/pdf-preview";
+import { useSelectedCandidate } from "@/routes/-components/selected-candidate-context";
 import { UploadCandidateDialog } from "@/routes/-components/upload-candidate-dialog";
 import { Input } from "@/components/ui/input";
 import type { Candidate } from "@/graphql/graphql";
@@ -12,7 +13,7 @@ import type { Candidate } from "@/graphql/graphql";
 export function CandidatesScreen() {
   const { data, isLoading, isError } = useCandidates();
   const [search, setSearch] = useState("");
-  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+  const { selectedCandidate, selectCandidate } = useSelectedCandidate();
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -29,12 +30,12 @@ export function CandidatesScreen() {
   }, []);
 
   const handleShowCandidate = useCallback((candidate: Candidate) => {
-    setSelectedCandidate(candidate);
-  }, []);
+    selectCandidate(candidate);
+  }, [selectCandidate]);
 
   const handleGeneratedCandidate = useCallback((candidate: Candidate) => {
-    setSelectedCandidate(candidate);
-  }, []);
+    selectCandidate(candidate);
+  }, [selectCandidate]);
 
   const renderCandidate = useCallback(
     (candidate: Candidate) => (

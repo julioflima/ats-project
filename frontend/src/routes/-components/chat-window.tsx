@@ -3,8 +3,9 @@ import { Bot, SendHorizontal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 
-import { useChat } from "@/api";
+import { useCandidates, useChat } from "@/api";
 import { MessageBubble, type ChatMessage } from "@/routes/-components/message-bubble";
+import { useSelectedCandidate } from "@/routes/-components/selected-candidate-context";
 import type { ChatQuestionFormValues } from "@/schemas/chat-question";
 import { chatQuestionSchema } from "@/schemas/chat-question";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,8 @@ import { Input } from "@/components/ui/input";
 export function ChatWindow() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const { isPending, mutateAsync } = useChat();
+  const { data: candidates = [] } = useCandidates();
+  const { selectCandidate } = useSelectedCandidate();
   const bottomRef = useRef<HTMLDivElement>(null);
   const { handleSubmit, register, reset } = useForm<ChatQuestionFormValues>({
     resolver: zodResolver(chatQuestionSchema),
@@ -48,8 +51,15 @@ export function ChatWindow() {
   );
 
   const renderMessage = useCallback(
-    (message: ChatMessage, index: number) => <MessageBubble key={index} message={message} />,
-    [],
+    (message: ChatMessage, index: number) => (
+      <MessageBubble
+        key={index}
+        message={message}
+        candidates={candidates}
+        onCandidateSelect={selectCandidate}
+      />
+    ),
+    [candidates, selectCandidate],
   );
 
   return (

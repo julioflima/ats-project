@@ -27,6 +27,6 @@ output "cv_bucket" {
 }
 
 output "llm_api_key_secret" {
-  description = "Add your Gemini key: gcloud secrets versions add <this> --data-file=-"
+  description = "Add your OpenRouter key: gcloud secrets versions add <this> --data-file=-"
   value       = google_secret_manager_secret.llm_api_key.secret_id
 }
