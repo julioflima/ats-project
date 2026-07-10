@@ -18,9 +18,14 @@ const promptHints = [
 export function GenerateCandidatePanel() {
   const [open, setOpen] = useState(false);
   const defaultPrompt = useDefaultGenerationPrompt({ enabled: open });
-  const generate = useGenerateCandidate({
-    onSuccess: () => setOpen(false),
-  });
+  const handleGenerateSuccess = useCallback(() => setOpen(false), []);
+  const {
+    error: generateError,
+    isError: generateIsError,
+    isPending: generateIsPending,
+    mutateAsync: generateCandidate,
+    reset: resetGenerate,
+  } = useGenerateCandidate({ onSuccess: handleGenerateSuccess });
   const {
     formState: { errors },
     handleSubmit,
@@ -44,16 +49,16 @@ export function GenerateCandidatePanel() {
 
   const handleClose = useCallback(() => {
     setOpen(false);
-    generate.reset();
+    resetGenerate();
     reset();
-  }, [generate, reset]);
+  }, [reset, resetGenerate]);
 
   const handleGenerateSubmit = useCallback(
     async (values: GenerateCandidateFormValues) => {
-      await generate.mutateAsync({ prompt: values.prompt.trim() });
+      await generateCandidate({ prompt: values.prompt.trim() });
       reset();
     },
-    [generate, reset],
+    [generateCandidate, reset],
   );
 
   const renderHint = useCallback(
@@ -130,9 +135,9 @@ export function GenerateCandidatePanel() {
                 )}
               </div>
 
-              {generate.isError && (
+              {generateIsError && (
                 <p className="mt-4 rounded-2xl border border-border bg-background p-3 text-sm text-muted-foreground">
-                  Generation failed: {(generate.error as Error).message}
+                  Generation failed: {(generateError as Error).message}
                 </p>
               )}
             </div>
@@ -141,8 +146,8 @@ export function GenerateCandidatePanel() {
               <p className="text-xs text-muted-foreground">
                 The CV will be rendered as PDF and indexed for candidate search.
               </p>
-              <Button type="submit" size="pill" disabled={generate.isPending}>
-                {generate.isPending ? "Generating CV..." : "Generate CV"}
+              <Button type="submit" size="pill" disabled={generateIsPending}>
+                {generateIsPending ? "Generating CV..." : "Generate CV"}
               </Button>
             </footer>
           </form>

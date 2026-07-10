@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 
 export function ChatWindow() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const chat = useChat();
+  const { isPending, mutateAsync } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
   const { handleSubmit, register, reset } = useForm<ChatQuestionFormValues>({
     resolver: zodResolver(chatQuestionSchema),
@@ -25,14 +25,14 @@ export function ChatWindow() {
 
   const handleQuestionSubmit = useCallback(
     async (values: ChatQuestionFormValues) => {
-      if (chat.isPending) return;
+      if (isPending) return;
 
       const question = values.question.trim();
       reset();
       setMessages((previous) => [...previous, { role: "user", text: question }]);
 
       try {
-        const answer = await chat.mutateAsync({ question });
+        const answer = await mutateAsync({ question });
         setMessages((previous) => [
           ...previous,
           { role: "assistant", text: answer.answer, sources: answer.sources },
@@ -44,7 +44,7 @@ export function ChatWindow() {
         ]);
       }
     },
-    [chat, reset],
+    [isPending, mutateAsync, reset],
   );
 
   const renderMessage = useCallback(
@@ -80,7 +80,7 @@ export function ChatWindow() {
           </div>
         )}
         {messages.map(renderMessage)}
-        {chat.isPending && (
+        {isPending && (
           <MessageBubble message={{ role: "assistant", text: "Searching the CVs..." }} />
         )}
         <div ref={bottomRef} />
@@ -91,7 +91,7 @@ export function ChatWindow() {
           placeholder="Ask about the candidates..."
           aria-label="Question"
         />
-        <Button type="submit" size="icon" disabled={chat.isPending}>
+        <Button type="submit" size="icon" disabled={isPending}>
           <SendHorizontal />
         </Button>
       </form>

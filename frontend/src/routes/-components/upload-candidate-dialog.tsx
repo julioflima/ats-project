@@ -20,9 +20,14 @@ import { uploadCandidateSchema } from "@/schemas/upload-candidate";
 export function UploadCandidateDialog() {
   const [open, setOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
-  const upload = useUploadCandidate({
-    onSuccess: () => setOpen(false),
-  });
+  const handleUploadSuccess = useCallback(() => setOpen(false), []);
+  const {
+    error: uploadError,
+    isError: uploadIsError,
+    isPending: uploadIsPending,
+    mutateAsync: uploadCandidate,
+    reset: resetUpload,
+  } = useUploadCandidate({ onSuccess: handleUploadSuccess });
   const {
     formState: { errors },
     handleSubmit,
@@ -36,20 +41,20 @@ export function UploadCandidateDialog() {
     (nextOpen: boolean) => {
       setOpen(nextOpen);
       if (!nextOpen) {
-        upload.reset();
+        resetUpload();
         reset();
       }
     },
-    [reset, upload],
+    [reset, resetUpload],
   );
 
   const handleUploadSubmit = useCallback(
     async (values: UploadCandidateFormValues) => {
-      await upload.mutateAsync({ file: values.file[0] });
+      await uploadCandidate({ file: values.file[0] });
       formRef.current?.reset();
       reset();
     },
-    [reset, upload],
+    [reset, uploadCandidate],
   );
 
   return (
@@ -71,13 +76,13 @@ export function UploadCandidateDialog() {
           {errors.file?.message && (
             <p className="text-xs text-destructive">{errors.file.message}</p>
           )}
-          {upload.isError && (
+          {uploadIsError && (
             <p className="text-sm text-muted-foreground">
-              Upload failed: {(upload.error as Error).message}
+              Upload failed: {(uploadError as Error).message}
             </p>
           )}
-          <Button type="submit" size="pill" disabled={upload.isPending}>
-            {upload.isPending ? "Uploading & indexing..." : "Upload"}
+          <Button type="submit" size="pill" disabled={uploadIsPending}>
+            {uploadIsPending ? "Uploading & indexing..." : "Upload"}
           </Button>
         </form>
       </DialogContent>
