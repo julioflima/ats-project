@@ -6,6 +6,10 @@ resource "google_compute_instance" "vm" {
   zone         = var.zone
   tags         = var.tags
 
+  # Lets Terraform stop/resize/start automatically on a machine_type change
+  # instead of erroring out demanding a manual stop first.
+  allow_stopping_for_update = true
+
   boot_disk {
     initialize_params {
       image = "debian-cloud/debian-12"
