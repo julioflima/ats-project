@@ -43,3 +43,20 @@ resource "google_compute_firewall" "allow_ssh" {
 
   source_ranges = [var.my_ip_cidr] # deliberately not 0.0.0.0/0
 }
+
+# IAP (Identity-Aware Proxy) tunneling: SSH authenticated by IAM identity
+# instead of source IP, routed through Google's own infra. Fixed range per
+# https://cloud.google.com/iap/docs/using-tcp-forwarding — robust against a
+# rotating/dynamic client IP, unlike allow_ssh above.
+resource "google_compute_firewall" "allow_iap_ssh" {
+  name        = "${var.name}-allow-iap-ssh"
+  network     = google_compute_network.vpc.id
+  target_tags = ["${var.name}-ssh"]
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  source_ranges = ["35.235.240.0/20"]
+}
