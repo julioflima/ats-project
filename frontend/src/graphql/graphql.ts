@@ -7,6 +7,7 @@ export interface Candidate {
   avatarUrl: string | null;
   sourceType: SourceType;
   createdAt: string;
+  pdfUrl: string;
 }
 
 export interface PromptTemplate {

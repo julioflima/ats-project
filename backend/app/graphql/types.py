@@ -3,6 +3,7 @@
 import enum
 from datetime import datetime
 from typing import Optional
+from urllib.parse import quote
 
 import strawberry
 
@@ -23,6 +24,7 @@ class Candidate:
     avatar_url: Optional[str]
     source_type: SourceType
     created_at: datetime
+    pdf_url: str
 
     @classmethod
     def from_row(cls, row: registry.Candidate) -> "Candidate":
@@ -33,6 +35,7 @@ class Candidate:
             avatar_url=row.avatar_url,
             source_type=SourceType(row.source_type),
             created_at=row.created_at,
+            pdf_url=f"/api/cvs/{quote(row.filename)}",
         )
 
 

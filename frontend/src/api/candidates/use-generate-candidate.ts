@@ -18,6 +18,7 @@ const graphql = gql`
       avatarUrl
       sourceType
       createdAt
+      pdfUrl
     }
   }
 `;

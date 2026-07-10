@@ -2,8 +2,9 @@ import { Search } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useCandidates } from "@/api";
-import { CandidateCard } from "@/routes/-components/candidate-card";
+import { CandidateListItem } from "@/routes/-components/candidate-list-item";
 import { GenerateCandidatePanel } from "@/routes/-components/generate-candidate-panel";
+import { PdfPreview } from "@/routes/-components/pdf-preview";
 import { UploadCandidateDialog } from "@/routes/-components/upload-candidate-dialog";
 import { Input } from "@/components/ui/input";
 import type { Candidate } from "@/graphql/graphql";
@@ -11,6 +12,7 @@ import type { Candidate } from "@/graphql/graphql";
 export function CandidatesScreen() {
   const { data, isLoading, isError } = useCandidates();
   const [search, setSearch] = useState("");
+  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -26,9 +28,24 @@ export function CandidatesScreen() {
     setSearch(event.target.value);
   }, []);
 
+  const handleShowCandidate = useCallback((candidate: Candidate) => {
+    setSelectedCandidate(candidate);
+  }, []);
+
+  const handleGeneratedCandidate = useCallback((candidate: Candidate) => {
+    setSelectedCandidate(candidate);
+  }, []);
+
   const renderCandidate = useCallback(
-    (candidate: Candidate) => <CandidateCard key={candidate.id} candidate={candidate} />,
-    [],
+    (candidate: Candidate) => (
+      <CandidateListItem
+        key={candidate.id}
+        candidate={candidate}
+        onShow={handleShowCandidate}
+        selected={selectedCandidate?.id === candidate.id}
+      />
+    ),
+    [handleShowCandidate, selectedCandidate?.id],
   );
 
   return (
@@ -46,23 +63,30 @@ export function CandidatesScreen() {
         </div>
         <div className="flex gap-3">
           <UploadCandidateDialog />
-          <GenerateCandidatePanel />
+          <GenerateCandidatePanel onGenerated={handleGeneratedCandidate} />
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
-        {isLoading && <p className="text-sm text-muted-foreground">Loading candidates...</p>}
-        {isError && <p className="text-sm text-muted-foreground">Could not load candidates.</p>}
-        {!isLoading && !isError && filtered.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            {data && data.length > 0
-              ? "No candidates match your search."
-              : "No candidates yet - upload a CV or generate one."}
-          </p>
-        )}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filtered.map(renderCandidate)}
+      <div className="grid min-h-0 flex-1 gap-4 p-4 lg:grid-cols-[minmax(320px,420px)_1fr]">
+        <div className="min-h-0 overflow-hidden rounded-3xl border border-border bg-background shadow-sm">
+          <div className="border-b border-border px-4 py-3">
+            <p className="text-sm font-semibold text-foreground">Candidates</p>
+            <p className="text-xs text-muted-foreground">{filtered.length} CVs available</p>
+          </div>
+          <div className="max-h-full overflow-y-auto">
+            {isLoading && <p className="p-4 text-sm text-muted-foreground">Loading candidates...</p>}
+            {isError && <p className="p-4 text-sm text-muted-foreground">Could not load candidates.</p>}
+            {!isLoading && !isError && filtered.length === 0 && (
+              <p className="p-4 text-sm text-muted-foreground">
+                {data && data.length > 0
+                  ? "No candidates match your search."
+                  : "No candidates yet - upload a CV or generate one."}
+              </p>
+            )}
+            {filtered.map(renderCandidate)}
+          </div>
         </div>
+        <PdfPreview candidate={selectedCandidate} />
       </div>
     </div>
   );

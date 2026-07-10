@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { GenerateCandidateFormValues } from "@/schemas/generate-candidate";
 import { generateCandidateSchema } from "@/schemas/generate-candidate";
+import type { Candidate } from "@/graphql/graphql";
 
 const promptHints = [
   "Define the job target and seniority first.",
@@ -15,7 +16,11 @@ const promptHints = [
   "Avoid vague traits; ask for concrete CV sections.",
 ];
 
-export function GenerateCandidatePanel() {
+interface GenerateCandidatePanelProps {
+  onGenerated: (candidate: Candidate) => void;
+}
+
+export function GenerateCandidatePanel({ onGenerated }: GenerateCandidatePanelProps) {
   const [open, setOpen] = useState(false);
   const defaultPrompt = useDefaultGenerationPrompt({ enabled: open });
   const handleGenerateSuccess = useCallback(() => setOpen(false), []);
@@ -55,10 +60,11 @@ export function GenerateCandidatePanel() {
 
   const handleGenerateSubmit = useCallback(
     async (values: GenerateCandidateFormValues) => {
-      await generateCandidate({ prompt: values.prompt.trim() });
+      const data = await generateCandidate({ prompt: values.prompt.trim() });
+      onGenerated(data.generateCandidate);
       reset();
     },
-    [generateCandidate, reset],
+    [generateCandidate, onGenerated, reset],
   );
 
   const renderHint = useCallback(
@@ -126,6 +132,7 @@ export function GenerateCandidatePanel() {
                 <Textarea
                   id="candidate-prompt"
                   rows={12}
+                  disabled={generateIsPending}
                   placeholder="Example: Generate a senior frontend engineer CV for a SaaS company. 8 years of React/TypeScript, design systems, accessibility, performance wins with measurable impact, English C1, based in Barcelona..."
                   className="min-h-[280px] resize-y rounded-2xl border-border/80 bg-secondary/50 p-4 text-base leading-7 shadow-none"
                   {...register("prompt")}

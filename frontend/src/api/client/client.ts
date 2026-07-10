@@ -1,3 +1,5 @@
 import { GraphQLClient } from "graphql-request";
 
-export const client = new GraphQLClient("/graphql");
+const graphqlEndpoint = new URL("/graphql", window.location.origin).toString();
+
+export const client = new GraphQLClient(graphqlEndpoint);
